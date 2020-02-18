@@ -1,0 +1,180 @@
+//init
+{DATA_INICIO}=date('Ymd');
+{DATA_DEVOLUCAO}= sc_data (date('Ymd'),"aaaammdd", " ", 7, 0, 0);
+
+$ArrayFeriados = file_get_contents('https://api.calendario.com.br/?json=true&ano=2019&estado=MG&cidade=JUIZ_DE_FORA&token=d2lsbGlhbS5mYWd1bmRlc0BzYW50YWNhc2FqZi5vcmcuYnImaGFzaD0zODkyMTUzOQ');
+
+if(!$ArrayFeriados){
+sc_error_message ("Erro no link! Não foi possível atualizar dados externos ");
+}else{
+sc_set_global($ArrayFeriados);
+}
+//onLoad
+{DATA_INICIO}=date('Ymd');
+$dataDisponivelEntregar =sc_data({DATA_INICIO},"aaaammdd", " ", 7, 0, 0);
+$resposta = diaParaEntregar($dataDisponivelEntregar);
+list($dia,$mes,$ano) =  explode('/',$resposta);
+{DATA_DEVOLUCAO}= $ano.''.$mes.''.$dia;
+//validade
+if (sc_btn_insert)
+{ 
+	isEmprestimoValido();
+sc_error_message("Registro incluido com sucesso");
+}
+//diaParaEntragar()
+$somaDiasDeRegras = "SELECT 
+TO_CHAR(DTEMPREST.DATA,'DD/MM/YYYY') AS DATA_BLOCK
+FROM CTRL_DATA_EMPRESTIMO DTEMPREST
+WHERE DTEMPREST.ATIVO                   ='S'
+AND TO_CHAR(DTEMPREST.DATA,'YYYYMMDD')='$dataDisponivelEntregar'";
+
+$dataSalve=$dataDisponivelEntregar;
+
+
+sc_lookup(isDiaDisponivel,$somaDiasDeRegras);
+
+
+$somarDias=0;
+$diaDisponivel=true;
+
+if({isDiaDisponivel[0][0]}){
+	while($diaDisponivel){
+		$dataSalve+=1;
+		$somaDiasRecursivo = "SELECT 
+		TO_CHAR(DTEMPREST.DATA,'DD/MM/YYYY') AS DATA_BLOCK
+		FROM CTRL_DATA_EMPRESTIMO DTEMPREST
+		WHERE DTEMPREST.ATIVO                   ='S'
+		AND TO_CHAR(DTEMPREST.DATA,'YYYYMMDD')='$dataSalve'";
+		sc_lookup(isDiaDisponivel,$somaDiasRecursivo);
+		if(!isset({isDiaDisponivel[0][0]})){
+		$diaDisponivel=false;
+			}
+	
+	}
+}
+
+
+$data = getdate(strtotime($dataSalve-1));// ["wday"]pode testar aqui a data $dataSalve-1
+
+$diaDisponivel=true;
+
+while($diaDisponivel==true){
+	
+if($data["wday"]==6 || $data["wday"]==0){
+	echo'p';
+	var_dump($dataSalve);
+	$dataSalve+=1;
+	$data = getdate(strtotime($dataSalve));
+	}
+	if($data["wday"]!=6 || $data["wday"]!=0){
+
+	$diaDisponivel=false;
+
+	}	
+}
+
+return $dataSalve;
+	
+/*
+carnaval
+24/02/20
+25/02/20
+26/02/20
+*/
+//isEmprestimoValido
+list($dia,$mes, $ano)  = explode('-',{DATA_INICIO});
+$dataInicio=$dia.'/'.$mes.'/'.$ano;
+
+list($dia,$mes, $ano)  = explode('-',{DATA_DEVOLUCAO});
+$dataFim=$dia.'/'.$mes.'/'.$ano;
+
+
+$sqlVerifiqueDiaInicio="SELECT 
+COUNT(CTRL_EMPRE.CD_CTRL_DATA_EMPRESTIMO) AS DATAEXISTE
+FROM
+CTRL_DATA_EMPRESTIMO CTRL_EMPRE
+where
+TO_CHAR(CTRL_EMPRE.DATA,'YYYY/MM/DD')='$dataInicio'";
+
+
+sc_lookup(sqlDataDisponivel,$sqlVerifiqueDiaInicio) ;
+
+if({sqlDataDisponivel[0][0]} == 1){
+$ArrayDeMensagem[]="Data inicio inválida";
+}
+
+
+$sqlVerifiqueDiaFim="SELECT 
+COUNT(CTRL_EMPRE.CD_CTRL_DATA_EMPRESTIMO) AS DATAEXISTE
+FROM
+CTRL_DATA_EMPRESTIMO CTRL_EMPRE
+where
+TO_CHAR(CTRL_EMPRE.DATA,'YYYY/MM/DD')='$dataFim'";
+
+sc_lookup(sqlDataDisponivel,$sqlVerifiqueDiaFim) ;
+
+
+
+if({sqlDataDisponivel[0][0]} == 1){
+$ArrayDeMensagem[]="Data de entrega inválida";
+}
+
+$sqlVerifiqueReserva="SELECT TO_CHAR(RES.DATA_PREVISTA,'YYYY/MM/DD')
+FROM RESERVA RES
+WHERE TO_CHAR(RES.DATA_PREVISTA,'YYYY/MM/DD')>='$dataInicio'
+AND RES.CD_ACERVO={CD_ACERVO}";
+
+
+sc_lookup(sqlDataDisponivel,$sqlVerifiqueReserva) ;
+
+
+
+if({sqlDataDisponivel[0][0]} > 1){
+list($ano,$mes,$dia)  = explode('/',{sqlDataDisponivel[0][0]});
+$diaReservado=$dia.'/'.$mes.'/'.$ano;
+$ArrayDeMensagem[]="Existe uma reserva para esse livro na data \"".$diaReservado."\"";
+}
+
+$sqlVerifiqueEmprestimo="SELECT TO_CHAR(MAX(EMPRE.DATA_DEVOLUCAO),'DD/MM/YYYY') AS ULTIMA_DATA_DEVOLUCAO, COUNT(EMPRE.DATA_DEVOLUCAO) AS QUANTIDADE_EMPRESTADA
+FROM
+EMPRESTIMO  EMPRE
+where
+TO_CHAR(EMPRE.DATA_DEVOLUCAO,'YYYY/MM/DD')='$dataFim'
+AND EMPRE.CD_ACERVO={CD_ACERVO}";
+
+sc_lookup(sqlDataDisponivel,$sqlVerifiqueEmprestimo);
+
+
+$sqlVerifiqueQtdadeEmprestimo="SELECT  ESTOQ.EXEMPLAR AS QUANTIDADE_ESTOQUE, ESTOQ.TITULO FROM ACERVO  ESTOQ WHERE ESTOQ.CD_ACERVO ={CD_ACERVO}";
+sc_lookup(sqlDisponivel,$sqlVerifiqueQtdadeEmprestimo);
+
+
+
+$emprestado = intval({sqlDataDisponivel[0][1]});
+$emEstoque = intval({sqlDisponivel[0][0]});
+print_r($emprestado.'  '.$emEstoque);
+
+
+if($emprestado == $emEstoque){
+$diaEmprestimo={sqlDataDisponivel[0][0]};
+
+$ArrayDeMensagem[]="Todos os exemplares disponíveis emprestados, o último a ser entregue será em: ".$diaEmprestimo."";
+}
+
+
+
+$msgs='';
+for($i=0;$i <= count($ArrayDeMensagem);$i++){
+		if(!empty($ArrayDeMensagem[$i]) && isset($ArrayDeMensagem[$i])){
+	$msgs.='<br>'.$ArrayDeMensagem[$i];
+		}
+	}
+
+foreach($ArrayDeMensagem as $msg){
+	if(!empty($msg) && isset($msg)){
+	$msgs.='<br>'.$msg;
+		}
+}
+
+sc_error_message("$msgs");
+
